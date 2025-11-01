@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
+import pandas as pd
 import joblib
 
 # Initialize Flask app
@@ -17,14 +18,16 @@ except Exception as e:
 
 @app.route("/")
 def home():
-    return jsonify({"message": "🌲 Vanrakshak Forest Fire Prediction API is running successfully!"})
+    return jsonify({
+        "message": "🌲 Vanrakshak Forest Fire Prediction API is running successfully!"
+    })
 
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json()
 
-        # Expected 11 parameters
+        # Expected feature order (must match training data)
         features = [
             "temperature", "humidity", "smoke", "temp_max", "temp_min",
             "pressure", "clouds_all", "wind_speed", "wind_deg",
@@ -35,12 +38,22 @@ def predict():
         if not all(f in data for f in features):
             return jsonify({"error": "Missing one or more input parameters."}), 400
 
-        # Extract and convert to array
-        input_data = np.array([[data[f] for f in features]])
-        scaled_data = scaler.transform(input_data)
+        # Convert to float safely
+        for key in features:
+            try:
+                data[key] = float(data[key])
+            except ValueError:
+                return jsonify({"error": f"Invalid value for {key}"}), 400
+
+        # Create DataFrame for scaling
+        input_df = pd.DataFrame([{f: data[f] for f in features}])
+
+        # Scale and predict
+        scaled_data = scaler.transform(input_df)
         prediction = model.predict(scaled_data)[0]
         probability = model.predict_proba(scaled_data)[0][1]
 
+        # Build response
         response = {
             "prediction": int(prediction),
             "probability": round(float(probability), 4),
@@ -54,5 +67,5 @@ def predict():
 
 
 if __name__ == "__main__":
-    # For Render deployment, use 0.0.0.0 host and port 10000+
+    # For Render deployment
     app.run(host="0.0.0.0", port=10000, debug=False)
