@@ -1,95 +1,58 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # Import CORS
+from flask_cors import CORS
 import numpy as np
 import joblib
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes and origins
+CORS(app)  # Enable CORS for all routes
 
+# Load trained model and scaler
 try:
     model = joblib.load("forest_fire_model.pkl")
     scaler = joblib.load("scaler.pkl")
-    print("✅ Model and scaler loaded successfully!")
+    print("✅ Model and scaler loaded successfully.")
 except Exception as e:
-    raise RuntimeError(f"Failed to load model files: {e}")
-
-# Define expected feature order (must match training)
-FEATURE_ORDER = ["temperature", "humidity", "smoke", "temp_max", "temp_min",
-                "pressure", "clouds_all", "wind_speed", "wind_deg", "temp_local", "wind_gust"]
+    print(f"❌ Error loading model or scaler: {e}")
 
 @app.route("/")
 def home():
-    return jsonify({"message": "🌲 Forest Fire Prediction API is running!"})
+    return jsonify({"message": "🌲 Vanrakshak Forest Fire Prediction API is running successfully!"})
 
-@app.route("/predict", methods=["POST", "OPTIONS"])  # Add OPTIONS for CORS preflight
+@app.route("/predict", methods=["POST"])
 def predict():
     try:
-        # Handle preflight request
-        if request.method == "OPTIONS":
-            return _build_cors_preflight_response()
-        
         data = request.get_json()
-        
-        if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
-        
-        # Check required fields
-        missing_fields = [field for field in FEATURE_ORDER if field not in data and field != "wind_gust"]
-        if missing_fields:
-            return jsonify({"error": f"Missing required fields: {missing_fields}"}), 400
-        
-        # Prepare features in correct order
-        features = []
-        for field in FEATURE_ORDER:
-            if field == "wind_gust":  # Optional field
-                value = data.get(field, 0)
-            else:
-                value = data[field]
-            features.append(float(value))
-        
-        features_array = np.array([features])
-        
-        # Scale and predict
-        scaled_features = scaler.transform(features_array)
-        prediction = int(model.predict(scaled_features)[0])
-        probability = float(model.predict_proba(scaled_features)[0, 1])
-        
-        response = jsonify({
-            "fire_risk": prediction,
-            "probability": round(probability, 3),
-            "message": "🔥 Forest Fire Detected!" if prediction == 1 else "✅ No Fire Detected."
-        })
-        
-        return _corsify_actual_response(response)
-        
-    except ValueError as e:
-        error_response = jsonify({"error": f"Invalid input format: {str(e)}"}), 400
-        return _corsify_actual_response(error_response[0]), error_response[1]
+
+        # Expected 11 parameters
+        features = [
+            "temperature", "humidity", "smoke", "temp_max", "temp_min",
+            "pressure", "clouds_all", "wind_speed", "wind_deg",
+            "wind_gust", "temp_local"
+        ]
+
+        # Check all parameters are present
+        if not all(f in data for f in features):
+            return jsonify({"error": "Missing one or more input parameters."}), 400
+
+        # Extract and convert to array
+        input_data = np.array([[data[f] for f in features]])
+        scaled_data = scaler.transform(input_data)
+        prediction = model.predict(scaled_data)[0]
+        probability = model.predict_proba(scaled_data)[0][1]
+
+        response = {
+            "prediction": int(prediction),
+            "probability": round(float(probability), 4),
+            "message": "🔥 Fire Risk Detected!" if prediction == 1 else "✅ No Fire Risk Detected."
+        }
+
+        return jsonify(response)
+
     except Exception as e:
-        error_response = jsonify({"error": f"Prediction failed: {str(e)}"}), 500
-        return _corsify_actual_response(error_response[0]), error_response[1]
+        return jsonify({"error": str(e)}), 500
 
-def _build_cors_preflight_response():
-    """Handle CORS preflight requests"""
-    response = jsonify({"status": "preflight"})
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-    response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-    return response
-
-def _corsify_actual_response(response):
-    """Add CORS headers to actual responses"""
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    return response
-
-@app.after_request
-def after_request(response):
-    """Add CORS headers to all responses"""
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # For Render deployment, use 0.0.0.0 host and port 10000+
+    app.run(host="0.0.0.0", port=10000, debug=False)
